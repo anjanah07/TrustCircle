@@ -1,0 +1,30 @@
+# Put the trustcircle directory at your repository root when using this Blueprint.
+services:
+  - type: web
+    name: trustcircle
+    runtime: node
+    plan: starter
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: trustcircle-db
+          property: connectionString
+      - key: PAYMENT_MODE
+        value: paypal
+      # Switch to false only after completing PayPal/webhook configuration.
+      - key: DEPLOYMENT_SETUP
+        value: "true"
+      # Add PayPal and OpenAI credentials in Render Environment after first deploy.
+      # APP_URL is optional on Render: the app uses RENDER_EXTERNAL_URL by default.
+databases:
+  - name: trustcircle-db
+    plan: basic-256mb
+    postgresMajorVersion: "17"
+    ipAllowList: []
+    databaseName: trustcircle
+    user: trustcircle

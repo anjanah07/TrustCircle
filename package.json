@@ -1,0 +1,45 @@
+{
+  "name": "trustcircle",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
+    "start": "next start",
+    "test": "DATABASE_URL= PAYMENT_MODE=demo OPENAI_API_KEY= DEMO_DB_PATH=memory:// node --import tsx --test test/*.test.ts",
+    "db:migrate": "node --import tsx server/migrate.ts",
+    "demo": "DATABASE_URL= PAYMENT_MODE=demo OPENAI_API_KEY= next dev --webpack",
+    "test:agent": "node --import tsx test/live-agent.ts",
+    "demo:ai": "DATABASE_URL= PAYMENT_MODE=demo next dev --webpack",
+    "test:autonomous": "node --import tsx test/live-autonomous.ts",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "paypal:check": "node scripts/paypal-check.mjs"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.13",
+    "@paypal/agent-toolkit": "^1.11.0",
+    "dotenv": "^18.0.9",
+    "openai": "^7.45.1",
+    "pg": "^8.23.1",
+    "qrcode": "^1.5.4",
+    "zod": "^4.6.7",
+    "next": "^16.0.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "ag-grid-community": "36.2.0",
+    "ag-grid-react": "36.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.23.1",
+    "@types/qrcode": "^1.5.6",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "prettier": "^3.6.2"
+  }
+}

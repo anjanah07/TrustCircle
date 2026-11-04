@@ -1,0 +1,13 @@
+node_modules/
+node_modules.original-pnpm/
+.env
+.env.*
+!.env.example
+.demo-db/
+web-dist/
+dist/
+*.log
+.DS_Store
+
+.next/
+*.tsbuildinfo
