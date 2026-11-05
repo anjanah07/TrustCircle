@@ -1,3 +1,4 @@
+import { databaseConfig } from "./databaseConfig.mjs";
 import { Pool } from "pg";
 import { PGlite } from "@electric-sql/pglite";
 import { readFile } from "node:fs/promises";
@@ -24,12 +25,7 @@ function database(): DatabaseState {
     const embedded = process.env.DATABASE_URL
       ? null
       : new PGlite(process.env.DEMO_DB_PATH || "./.demo-db");
-    const pool = embedded
-      ? null
-      : new Pool({
-          connectionString: process.env.DATABASE_URL,
-          ...(process.env.PGSSL === "true" ? { ssl: { rejectUnauthorized: true } } : {}),
-        });
+    const pool = embedded ? null : new Pool(databaseConfig());
     globalDatabase.trustCircleDatabase = { embedded, pool, queue: Promise.resolve() };
   }
   return globalDatabase.trustCircleDatabase;

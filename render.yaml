@@ -14,6 +14,8 @@ services:
         fromDatabase:
           name: trustcircle-db
           property: connectionString
+      - key: PGSSL_MODE
+        value: render-internal
       - key: PAYMENT_MODE
         value: paypal
       # Switch to false only after completing PayPal/webhook configuration.

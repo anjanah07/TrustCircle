@@ -1,3 +1,4 @@
+import { databaseConfig } from "../server/databaseConfig.mjs";
 import nextEnv from "@next/env";
 import pg from "pg";
 nextEnv.loadEnvConfig(process.cwd(), true);
@@ -61,8 +62,7 @@ if (result.credentialsPresent) {
 }
 if (process.env.DATABASE_URL) {
   const client = new pg.Client({
-    connectionString: process.env.DATABASE_URL,
-    ...(process.env.PGSSL === "true" ? { ssl: { rejectUnauthorized: true } } : {}),
+    ...databaseConfig(),
     connectionTimeoutMillis: 10000,
   });
   try {
