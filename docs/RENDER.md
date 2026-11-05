@@ -47,7 +47,7 @@ The model variables are optional for payment execution. They enable automatic ex
 
 Leave `APP_URL` unset on Render to use its automatic `RENDER_EXTERNAL_URL`. Set `APP_URL` explicitly only for a different public origin, such as a custom domain. Never copy the local `APP_URL=http://localhost:3000` into Render.
 
-Render environment variables and local `.env` are separate. Editing the local file does not update the deployed app. Likewise, keep the Blueprint's fresh `DATABASE_URL`; do not replace it with the database containing old simulation data.
+Render environment variables and local `.env` are separate. Editing the local file does not update the deployed app. The Blueprint sets `DATABASE_SCHEMA=trustcircle_paypal`. This creates dedicated PayPal tables, even if the same database contains older simulation tables in `public`. Those older tables stay intact.
 
 See `PAYPAL-SETUP.md` for webhook subscriptions and account requirements. The five personal account emails are used when members register; their PayPal dashboard numeric IDs are not needed by the email-based payout flow.
 
@@ -60,3 +60,15 @@ The app validates configuration, migrates the new database and starts its worker
 No Render deployment has been created by the coding agent. Account selection, repository connection and resource creation remain to be done in Render.
 
 Sources: [Next.js on Render](https://render.com/docs/deploy-nextjs-app), [Render environment variables](https://render.com/docs/environment-variables), [free service limitations](https://render.com/docs/free).
+
+## Internal database TLS
+
+Set `PGSSL_MODE=render-internal` in the Render web service's Environment and redeploy the updated code. The Blueprint now includes this setting. Render's internal database endpoint uses a self-signed certificate, so this explicitly requires TLS without CA verification only when running on Render with a private `dpg-...` hostname. External URLs are rejected in this mode. It overrides `PGSSL=true` for that private connection only.
+
+Leave this mode unset locally and for external database URLs. Do not set `NODE_TLS_REJECT_UNAUTHORIZED=0`: that disables verification for unrelated HTTPS connections, including PayPal. Adding `--use-system-ca` does not establish trust in a certificate that is absent from the system trust store.
+
+Reference: [Render PostgreSQL TLS modes](https://render.com/docs/postgresql-creating-connecting).
+
+## Existing simulated-circle startup error
+
+Push the latest code, then set `DATABASE_SCHEMA=trustcircle_paypal` in Render Environment and redeploy. Keep the same internal `DATABASE_URL` and `PGSSL_MODE=render-internal`. Startup creates that schema and its empty tables automatically, without looking up tables in `public`. This is database namespace isolation, not a new database purchase. Existing simulated circles remain in their original schema. Register fresh members in the new PayPal schema. Do not change the schema name after starting actual sandbox transactions.

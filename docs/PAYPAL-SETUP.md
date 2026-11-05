@@ -9,7 +9,7 @@ On November 3, 2026, a read-only call authenticated successfully with the config
 Remaining blockers found by `npm run paypal:check`:
 
 - `APP_URL` is not a public HTTPS origin and does not match the webhook destination.
-- The database contains simulated INR circles. Use a fresh database for USD sandbox records; do not erase the old database or change its currency labels.
+- The database contains simulated INR circles. Use `DATABASE_SCHEMA=trustcircle_paypal` to isolate USD sandbox records within the same database, or use a fresh database. Do not erase the old records or change their currency labels.
 - The Treasurer email display label is not set. Account identity is determined by the credentials, not this label.
 - Payouts access, sufficient sandbox balance and all five buyer accounts have not yet been verified.
 
@@ -19,7 +19,8 @@ Keep credentials in root `.env`, never in chat or `NEXT_PUBLIC_` variables.
 
 ```dotenv
 PAYMENT_MODE=paypal
-DATABASE_URL=your_fresh_postgresql_database_connection
+DATABASE_URL=your_postgresql_database_connection
+DATABASE_SCHEMA=trustcircle_paypal
 PGSSL=true
 APP_URL=https://your-public-app-origin.example
 PAYPAL_CLIENT_ID=existing_business_sandbox_app_id
@@ -53,7 +54,7 @@ npm run build
 npm start
 ```
 
-The checker makes no payment mutations. Startup applies schema migrations only after required configuration is present, then rejects any database containing simulation circles. The synthetic fixture and simulated capture branches are disabled in PayPal mode.
+The checker makes no payment mutations. Startup applies schema migrations only after required configuration is present, then rejects any selected schema containing simulation circles. The synthetic fixture and simulated capture branches are disabled in PayPal mode.
 
 1. Register all five actual sandbox members and join one new USD circle.
 2. Each member confirms the displayed deposit with `okay`, approves PayPal checkout, and verifies a completed capture in Transactions and the Treasurer's sandbox account.

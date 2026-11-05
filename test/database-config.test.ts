@@ -50,3 +50,39 @@ test("ordinary hosted connections retain certificate verification", () => {
     { rejectUnauthorized: true },
   );
 });
+
+test("dedicated schema overrides URL search path without public fallback", () => {
+  const config = databaseConfig({
+    DATABASE_URL:
+      "postgresql://user:pass@db.example/db?options=-c%20search_path%3Dpublic",
+    DATABASE_SCHEMA: "trustcircle_paypal",
+    PGSSL: "true",
+  });
+  const client = new pg.Client(config);
+  assert.equal(
+    (client as any).connectionParameters.options,
+    "-c search_path=trustcircle_paypal",
+  );
+  assert.deepEqual((client as any).connectionParameters.ssl, {
+    rejectUnauthorized: true,
+  });
+});
+
+test("invalid or shared schema names are rejected", () => {
+  for (const schema of [
+    "public",
+    "pg_catalog",
+    "a,b",
+    "test;DROP SCHEMA public",
+    "information_schema",
+  ]) {
+    assert.throws(
+      () =>
+        databaseConfig({
+          DATABASE_URL: "postgresql://user:pass@db.example/db",
+          DATABASE_SCHEMA: schema,
+        }),
+      /dedicated/,
+    );
+  }
+});

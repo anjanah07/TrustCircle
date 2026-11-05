@@ -34,7 +34,7 @@ export async function ensureRuntime(): Promise<void> {
         );
         if (legacy)
           throw new Error(
-            "This database contains simulated circles. Use a separate fresh DATABASE_URL for PayPal sandbox; existing data has been preserved.",
+            "The selected database schema contains simulated circles. Set DATABASE_SCHEMA=trustcircle_paypal to use a dedicated empty schema, or use a fresh DATABASE_URL. Existing data has been preserved.",
           );
       }
       // A single timer survives development reloads. Database locks and payout

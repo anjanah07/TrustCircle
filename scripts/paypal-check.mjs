@@ -68,7 +68,8 @@ if (process.env.DATABASE_URL) {
   try {
     await client.connect();
     result.databaseConnected = true;
-    const tables = await client.query("SELECT to_regclass('public.circles') AS circles");
+    result.databaseSchema = process.env.DATABASE_SCHEMA || "default search path";
+    const tables = await client.query("SELECT to_regclass('circles') AS circles");
     result.containsSimulationData = tables.rows[0].circles
       ? (
           await client.query(

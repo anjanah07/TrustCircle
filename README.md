@@ -74,7 +74,8 @@ Required setup for five real sandbox identities:
 
 ```dotenv
 PAYMENT_MODE=paypal
-DATABASE_URL=your_fresh_postgresql_url
+DATABASE_URL=your_postgresql_url
+DATABASE_SCHEMA=trustcircle_paypal
 PAYPAL_CLIENT_ID=treasurer_business_app_client_id
 PAYPAL_CLIENT_SECRET=treasurer_business_app_secret
 TREASURER_PAYPAL_EMAIL=treasurer_business_sandbox_email

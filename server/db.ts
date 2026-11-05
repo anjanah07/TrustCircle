@@ -1,4 +1,4 @@
-import { databaseConfig } from "./databaseConfig.mjs";
+import { databaseConfig, databaseSchema } from "./databaseConfig.mjs";
 import { Pool } from "pg";
 import { PGlite } from "@electric-sql/pglite";
 import { readFile } from "node:fs/promises";
@@ -57,6 +57,12 @@ export async function migrate() {
   const { embedded, pool } = database();
   const c: any = embedded || (await pool!.connect());
   try {
+    const schema = databaseSchema();
+    if (schema) {
+      // databaseSchema validates the identifier before it is interpolated.
+      await c.query(`CREATE SCHEMA IF NOT EXISTS "${schema}"`);
+      await c.query(`SET search_path TO "${schema}"`);
+    }
     await c.query("CREATE TABLE IF NOT EXISTS migrations (version int PRIMARY KEY)");
     if (!(await c.query("SELECT * FROM migrations WHERE version=1")).rows.length) {
       const sql = await readFile(`${process.cwd()}/server/schema.sql`, "utf8");
