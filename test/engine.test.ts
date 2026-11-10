@@ -456,15 +456,15 @@ test("expired request window automatically falls back to rotation and does not p
   assert.equal(state.payouts.filter((p) => p.purpose === "winner").length, 1);
 });
 
-test("okay confirms only the member's specific deposit and repeated confirmation credits once", async () => {
+test("button confirmation authorizes only the member's specific deposit and repeated confirmation credits once", async () => {
   const f = await fixture(2);
   const { proposeDeposit, confirmDeposit } = await import("../server/deposit.js");
   const proposal = await proposeDeposit(f.members[0].id);
   assert.equal(proposal.amount, 150000);
   assert.equal((await proposeDeposit(f.members[0].id)).id, proposal.id);
-  await assert.rejects(confirmDeposit(f.members[0].id, proposal.id, "maybe"), /okay/);
-  await assert.rejects(confirmDeposit(f.members[1].id, proposal.id, "okay"), /belong/);
-  await confirmDeposit(f.members[0].id, proposal.id, "Okay");
-  await confirmDeposit(f.members[0].id, proposal.id, "okay");
+  await assert.rejects(confirmDeposit(f.members[0].id, proposal.id, false), /Confirm/);
+  await assert.rejects(confirmDeposit(f.members[1].id, proposal.id, true), /belong/);
+  await confirmDeposit(f.members[0].id, proposal.id, true);
+  await confirmDeposit(f.members[0].id, proposal.id, true);
   assert.equal(await tx((c) => balance(c, `collateral:${f.members[0].id}`)), 150000);
 });

@@ -1,6 +1,8 @@
 import { deploymentSetup } from "./paypalConfig";
 import { z } from "zod";
-import { tx } from "./db";
+import { tx, demo } from "./db";
+import { sessionUser } from "./auth";
+import { appOrigin } from "./paypalConfig";
 import { tokenHash } from "./circles";
 import { ensureRuntime } from "./runtime";
 
@@ -31,24 +33,31 @@ export function handle(
       }
       await ensureRuntime();
       const headers = Object.fromEntries(request.headers.entries());
-      let user;
+      const url = new URL(request.url);
+      if (request.method === "POST" && !url.pathname.startsWith("/api/webhooks/")) {
+        const origin = request.headers.get("origin");
+        const expected = appOrigin() || url.origin;
+        if (
+          (!demo && !origin) ||
+          (origin && origin !== expected && origin !== url.origin)
+        ) {
+          return Response.json({ error: "Request origin denied" }, { status: 403 });
+        }
+      }
+      let user = deploymentSetup() ? null : await sessionUser(headers);
       if (!options.public) {
-        const token = headers.authorization?.replace(/^Bearer /, "");
-        if (!token)
-          return Response.json(
-            { error: "Sign in with your member token" },
-            { status: 401 },
+        const token = demo ? headers.authorization?.replace(/^Bearer /, "") : null;
+        if (token)
+          user = await tx(
+            async (c) =>
+              (
+                await c.query("SELECT * FROM users WHERE token_hash=$1", [
+                  tokenHash(token),
+                ])
+              ).rows[0],
           );
-        user = await tx(
-          async (connection) =>
-            (
-              await connection.query("SELECT * FROM users WHERE token_hash=$1", [
-                tokenHash(token),
-              ])
-            ).rows[0],
-        );
         if (!user)
-          return Response.json({ error: "Invalid member token" }, { status: 401 });
+          return Response.json({ error: "Please log in to continue" }, { status: 401 });
       }
       let body = {};
       if (request.method === "POST") {
@@ -79,7 +88,14 @@ export function handle(
           }
         }
       }
-      return await endpoint({ params: await route.params, body, headers, user });
+      const response = await endpoint({
+        params: await route.params,
+        body,
+        headers,
+        user,
+      });
+      response.headers.set("Cache-Control", "no-store");
+      return response;
     } catch (error) {
       const validation = error instanceof z.ZodError;
       const message = validation

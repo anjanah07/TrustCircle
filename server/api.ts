@@ -60,6 +60,11 @@ export async function postWebhooksPaypal(context: ApiContext): Promise<Response>
   return response;
 }
 export async function postRegister(context: ApiContext): Promise<Response> {
+  if (!demo)
+    return Response.json(
+      { error: "Use /api/auth/signup to create an account" },
+      { status: 410 },
+    );
   const b = z
     .object({
       name: z.string().min(1).max(80),
@@ -97,6 +102,7 @@ export async function getMe(context: ApiContext): Promise<Response> {
   const response = Response.json({
     id: context.user.id,
     name: context.user.name,
+    trust_score: context.user.trust_score,
     paypal_email: context.user.paypal_email,
     demo,
   });
@@ -108,7 +114,7 @@ export async function getCircles(context: ApiContext): Promise<Response> {
       async (c) =>
         (
           await c.query(
-            "SELECT c.* FROM circles c JOIN members m ON m.circle_id=c.id WHERE m.user_id=$1",
+            "SELECT c.id,c.name,c.status,c.visibility,c.contribution,c.n_members,c.currency FROM circles c JOIN members m ON m.circle_id=c.id WHERE m.user_id=$1",
             [context.user.id],
           )
         ).rows,
@@ -120,7 +126,11 @@ export async function postCircles(context: ApiContext): Promise<Response> {
   const input = z
     .object({
       name: z.string().min(1).max(100),
-      contribution: z.number().int().positive().max(100000000),
+      contribution: z.number().int().positive().max(100000000).optional(),
+      monthly_payout: z.number().int().positive().max(100000000).optional(),
+      collateral_amount: z.number().int().positive().max(100000000).optional(),
+      visibility: z.enum(["public", "private"]).default("private"),
+      min_trust_score: z.number().int().min(50).max(100).default(50),
       n_members: z.number().int().min(2).max(10),
       mode: z.enum(["rotation", "auction"]),
       request_window_seconds: z.number().int().min(15).max(3600).default(60),
@@ -128,7 +138,7 @@ export async function postCircles(context: ApiContext): Promise<Response> {
     .parse(context.body);
   const response = Response.json(
     await tx(async (c) => {
-      const circle = await createCircle(c, input);
+      const circle = await createCircle(c, { ...input, creator_id: context.user.id });
       await join(c, circle.id, context.user.id);
       return circle;
     }),
@@ -137,13 +147,22 @@ export async function postCircles(context: ApiContext): Promise<Response> {
 }
 export async function postCirclesIdJoin(context: ApiContext): Promise<Response> {
   const response = Response.json(
-    await tx((c) => join(c, context.params.id, context.user.id)),
+    await tx((c) =>
+      join(
+        c,
+        context.params.id,
+        context.user.id,
+        z.object({ invite_token: z.string().max(128).optional() }).parse(context.body)
+          .invite_token,
+      ),
+    ),
   );
   return response;
 }
 export async function getCirclesId(context: ApiContext): Promise<Response> {
   const m = await access(context.user.id, context.params.id);
   const state = await tx((c) => snapshot(c, context.params.id));
+  if (state.circle.creator_id !== context.user.id) delete state.circle.invite_token;
   for (const p of state.payouts) delete p.receiver;
   const response = Response.json({
     ...state,
@@ -151,7 +170,7 @@ export async function getCirclesId(context: ApiContext): Promise<Response> {
       async (c) =>
         (
           await c.query(
-            "SELECT id,kind,amount,currency,paypal_id,capture_id,status,provider_status,last_error,approval_url FROM payment_orders WHERE member_id=$1",
+            "SELECT p.id,p.kind,p.amount,p.currency,p.paypal_id,p.capture_id,p.status,p.provider_status,p.last_error,p.approval_url,EXISTS(SELECT 1 FROM agent_actions a WHERE a.tool='confirm_deposit' AND a.args->>'order_id'=p.id::text) AS deposit_confirmed FROM payment_orders p WHERE p.member_id=$1",
             [m.id],
           )
         ).rows,
@@ -296,10 +315,61 @@ export async function postDepositProposal(context: ApiContext): Promise<Response
 export async function postDepositConfirmation(context: ApiContext): Promise<Response> {
   const member = await ownMember(context.user.id, context.params.id);
   const input = z
-    .object({ order_id: z.uuid(), confirmation: z.string().max(20) })
+    .object({ order_id: z.uuid(), confirmed: z.literal(true) })
     .strict()
     .parse(context.body);
+  return Response.json(await confirmDeposit(member.id, input.order_id, input.confirmed));
+}
+
+export async function getPublicCircles(context: ApiContext): Promise<Response> {
   return Response.json(
-    await confirmDeposit(member.id, input.order_id, input.confirmation),
+    await tx(
+      async (c) =>
+        (
+          await c.query(
+            "SELECT c.id,c.name,c.contribution,c.n_members,c.currency,c.collateral_amount,c.min_trust_score,count(m.id)::int AS joined FROM circles c LEFT JOIN members m ON m.circle_id=c.id WHERE c.visibility='public' AND c.status='forming' GROUP BY c.id HAVING count(m.id)<c.n_members ORDER BY c.created_at DESC LIMIT 100",
+          )
+        ).rows,
+    ),
   );
+}
+export async function getCirclePreview(context: ApiContext): Promise<Response> {
+  const token = context.headers["x-circle-invite"];
+  return tx(async (c) => {
+    const circle = (
+      await c.query(
+        "SELECT c.*, (SELECT count(*)::int FROM members WHERE circle_id=c.id) AS joined FROM circles c WHERE c.id=$1",
+        [context.params.id],
+      )
+    ).rows[0];
+    requireThat(
+      circle &&
+        (circle.visibility === "public" ||
+          circle.creator_id === context.user.id ||
+          (token && token === circle.invite_token)),
+      "Circle invite unavailable",
+    );
+    return Response.json({
+      id: circle.id,
+      name: circle.name,
+      contribution: circle.contribution,
+      n_members: circle.n_members,
+      currency: circle.currency,
+      collateral_amount: circle.collateral_amount,
+      joined: circle.joined,
+      status: circle.status,
+      visibility: circle.visibility,
+      min_trust_score: circle.min_trust_score,
+    });
+  });
+}
+export async function postOrderPrepare(context: ApiContext): Promise<Response> {
+  const order = await tx(
+    async (c) =>
+      (await c.query("SELECT * FROM payment_orders WHERE id=$1", [context.params.id]))
+        .rows[0],
+  );
+  requireThat(order, "Order not found");
+  await ownMember(context.user.id, order.member_id);
+  return Response.json(await prepareOrder(order.id));
 }

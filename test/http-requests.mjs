@@ -53,7 +53,7 @@ for (const user of members) {
   assert.equal(proposal.amount, 30000);
   const result = await api(
     `/members/${user.member.id}/deposit-confirmation`,
-    { order_id: proposal.id, confirmation: "okay" },
+    { order_id: proposal.id, confirmed: true },
     user.token,
   );
   assert.equal(result.status, "completed");
@@ -90,6 +90,6 @@ assert.equal(
 );
 assert.ok(state.payouts.every((payout) => payout.status === "succeeded"));
 console.log(
-  "Passed: okay deposits, full-funding window, highest discount winner, automatic winner and equal-share payouts.",
+  "Passed: button-confirmed deposits, full-funding window, highest discount winner, automatic winner and equal-share payouts.",
 );
 await api(`/members/${members[2].member.id}/exit`, {}, users[2].token);

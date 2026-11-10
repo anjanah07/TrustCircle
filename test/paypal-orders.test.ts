@@ -98,6 +98,22 @@ test("PayPal order lifecycle validates ownership, pending captures and webhook r
   const order = await tx((c) =>
     createOrder(c, member.id, "collateral", crypto.randomUUID()),
   );
+  // An old unconfirmed proposal must still be able to start its first checkout.
+  await tx((c) =>
+    c.query("UPDATE payment_orders SET created_at=now()-interval '1 day' WHERE id=$1", [
+      order.id,
+    ]),
+  );
+  const reused = await tx((c) =>
+    createOrder(c, member.id, "collateral", crypto.randomUUID()),
+  );
+  assert.equal(reused.id, order.id);
+  const { confirmDeposit } = await import("../server/deposit.js");
+  const confirmed = await confirmDeposit(member.id, order.id, true);
+  assert.equal(confirmed.status, "awaiting_buyer_approval");
+  assert.match(confirmed.approval_url!, /sandbox.paypal.com/);
+  assert.equal(captureCalls, 0);
+  assert.equal(await tx((c) => balance(c, `collateral:${member.id}`)), 0);
   const prepared = await prepareOrder(order.id);
   assert.equal(prepared.paypal_id, "ORDER123456789");
   const create = requests.find((r) => r.url.endsWith("/checkout/orders"));

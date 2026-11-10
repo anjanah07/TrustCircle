@@ -116,9 +116,9 @@ has been performed.
 
 For new circles, every funded round opens a 60-second window. Request the payout with a zero discount or offer a larger discount to accept less. Previous winners cannot win again during the entire circle. Repeated requests update the same member bid; ties use bid time, then slot. No requests means the next eligible rotation member wins. Each other member receives an equal discount share through the payout queue; any remainder cents follow slot order. Provider confirmation, rather than queue creation, marks a payout successful. Existing circles retain their original rules.
 
-The deposit button displays a specific amount and Treasurer recipient. Type `okay` and confirm to execute that proposal. Simulation credits the simulated deposit; sandbox uses the PayPal Agent Toolkit to create checkout, and captures only after PayPal buyer approval on return. This does not implement saved-wallet mandates or bypass PayPal approval. Switching members clears the confirmation.
+Clicking Deposit collateral creates or reuses the member’s deposit proposal and immediately starts checkout for that amount and Treasurer recipient. Simulation credits the simulated deposit; sandbox uses the PayPal Agent Toolkit to create checkout, and captures only after PayPal buyer approval on return. This does not implement saved-wallet mandates or bypass PayPal approval.
 
-The API accepts `request_window_seconds` (15–3600, default 60) when creating a circle. `POST /api/members/:id/deposit-proposal` creates/reuses the member's deposit intent; `POST /api/members/:id/deposit-confirmation` accepts `{order_id, confirmation: "okay"}`.
+The API accepts `request_window_seconds` (15–3600, default 60) when creating a circle. `POST /api/members/:id/deposit-proposal` creates/reuses the member's deposit intent; `POST /api/members/:id/deposit-confirmation` accepts `{order_id, confirmed: true}`.
 
 ## PayPal order recovery
 

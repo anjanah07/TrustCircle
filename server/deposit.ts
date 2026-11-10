@@ -30,12 +30,9 @@ export async function proposeDeposit(memberId: string) {
 export async function confirmDeposit(
   memberId: string,
   orderId: string,
-  confirmation: string,
+  confirmed: boolean,
 ) {
-  requireThat(
-    confirmation.trim().toLowerCase() === "okay",
-    'Type "okay" to confirm this deposit',
-  );
+  requireThat(confirmed === true, "Confirm this deposit to continue");
   const order = await tx(async (connection) => {
     const order = (
       await connection.query(

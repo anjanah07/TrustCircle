@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Grid from "./Grid";
+import CircleLobby from "./CircleLobby";
 import type { Session, Snapshot, Config, Account, Ledger, Payout, Member } from "./types";
 type Order = {
   id: string;
@@ -13,6 +14,7 @@ type Order = {
   provider_status: string | null;
   last_error: string | null;
   approval_url: string | null;
+  deposit_confirmed?: boolean;
 };
 type State = Snapshot & { ownOrders: Order[] };
 export default function Dashboard() {
@@ -30,25 +32,8 @@ export default function Dashboard() {
     request = useRef(0),
     inFlight = useRef(false),
     loading = useRef<{ token: string; serial: number } | null>(null);
-  const [registration, setRegistration] = useState({
-    name: "",
-    email: "",
-    token: "",
-    circle: "",
-  });
-  const [circleName, setCircleName] = useState("Builders Circle");
-  const mode = "auction";
   const [bid, setBid] = useState("0");
-  const [depositProposal, setDepositProposal] = useState<{
-    id: string;
-    member_id: string;
-    amount: number;
-    currency: string;
-  } | null>(null);
-  const [depositConfirmation, setDepositConfirmation] = useState("");
   useEffect(() => {
-    setDepositProposal(null);
-    setDepositConfirmation("");
     setBid("0");
   }, [session?.memberId]);
   async function api<T>(
@@ -66,11 +51,17 @@ export default function Dashboard() {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
     const value = await r.json();
+    if (r.status === 401) {
+      // A failed operation must not discard the selected circle or a valid login.
+      const authentication = await fetch("/api/auth/session", { cache: "no-store" });
+      if (authentication.status === 401) window.location.assign("/");
+    }
     if (!r.ok) throw Error(value.error || "Request failed");
     return value;
   }
   const save = useCallback((s: Session | null) => {
     request.current++;
+    loading.current = null;
     current.current = s;
     setSession(s);
     setData(null);
@@ -100,8 +91,15 @@ export default function Dashboard() {
   }, []);
   useEffect(() => {
     try {
+      const savedTab = sessionStorage.getItem("tc-dashboard-tab");
+      if (
+        savedTab &&
+        ["Overview", "Members", "Transactions", "Treasurer"].includes(savedTab)
+      ) {
+        setTab(savedTab);
+      }
       const s = sessionStorage.getItem("tc-next-session");
-      if (s) save(JSON.parse(s));
+      if (s && !window.location.pathname.startsWith("/invite/")) save(JSON.parse(s));
     } catch {
       sessionStorage.removeItem("tc-next-session");
     }
@@ -179,6 +177,22 @@ export default function Dashboard() {
     else if (o.approval_url) location.assign(o.approval_url);
     else throw Error("PayPal did not return an approval link");
   }
+  async function depositCollateral(orderId?: string) {
+    const memberId = current.current!.memberId;
+    const proposal = orderId
+      ? { id: orderId }
+      : await api<{ id: string }>(`/members/${memberId}/deposit-proposal`, {});
+    const result = await api<{ status: string; approval_url?: string }>(
+      `/members/${memberId}/deposit-confirmation`,
+      { order_id: proposal.id, confirmed: true },
+    );
+    if (result.approval_url) window.location.assign(result.approval_url);
+    else if (result.status === "completed") {
+      setNotice(
+        config?.demo ? "Simulated deposit received by Treasurer." : "Deposit confirmed.",
+      );
+    } else throw new Error("PayPal approval is still required");
+  }
   async function startDemo() {
     const d = await api<{
       circle: { id: string };
@@ -191,32 +205,17 @@ export default function Dashboard() {
       members: d.members,
     });
   }
-  async function register() {
-    const u = registration.token
-      ? { token: registration.token }
-      : await api<{ token: string }>("/register", {
-          name: registration.name,
-          email: registration.email,
-        });
-    let circleId = registration.circle;
-    if (circleId) await api(`/circles/${circleId}/join`, {}, u.token);
-    else {
-      const ci = await api<{ id: string }>(
-        "/circles",
-        { name: circleName, contribution: 50000, n_members: 5, mode },
-        u.token,
-      );
-      circleId = ci.id;
-    }
-    const [s, a] = await Promise.all([
-      api<State>("/circles/" + circleId, undefined, u.token),
-      api<Account>("/me", undefined, u.token),
+  async function openCircle(circleId: string) {
+    const [state, account] = await Promise.all([
+      api<State>(`/circles/${circleId}`, undefined, ""),
+      api<Account>("/me", undefined, ""),
     ]);
-    const member = s.members.find(
-      (m) => (m as Member & { user_id: string }).user_id === a.id,
+    const member = state.members.find(
+      (m) => (m as Member & { user_id: string }).user_id === account.id,
     );
     if (!member) throw Error("Member not found");
-    save({ token: u.token, circleId, memberId: member.id });
+    save({ token: "", circleId, memberId: member.id });
+    window.history.replaceState({}, "", "/");
   }
   const deductions =
     data?.ledger.filter(
@@ -259,7 +258,10 @@ export default function Dashboard() {
           {["Overview", "Members", "Transactions", "Treasurer"].map((t, i) => (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => {
+                setTab(t);
+                sessionStorage.setItem("tc-dashboard-tab", t);
+              }}
               className={tab === t ? "selected" : ""}
             >
               <span>{["▦", "♧", "⇄", "✧"][i]}</span>
@@ -275,7 +277,20 @@ export default function Dashboard() {
             AG Grid · Next.js 16
           </p>
         </div>
-        {session && <button onClick={() => save(null)}>Sign out</button>}
+        <a href="/demo">Experience the demo ↗</a>
+        <button
+          onClick={() =>
+            run(async () => {
+              await api("/auth/logout", {});
+              save(null);
+              sessionStorage.removeItem("tc-account");
+              window.location.assign("/");
+            })
+          }
+        >
+          Sign out
+        </button>
+        {session && <button onClick={() => save(null)}>Choose another circle</button>}
       </aside>
       <main>
         <header>
@@ -299,81 +314,7 @@ export default function Dashboard() {
             </div>
           )}
           {!session ? (
-            <>
-              <section className="welcome">
-                <span className="eyebrow">AUTOMATION YOU CAN AUDIT</span>
-                <h1>
-                  Your circle.
-                  <br />
-                  Always in motion.
-                </h1>
-                <p>
-                  One Treasurer account. Five independent members.
-                  <br />
-                  Automatic collections, transparent decisions.
-                </p>
-                {config?.demo && (
-                  <button
-                    className="primary"
-                    disabled={busy}
-                    onClick={() => run(startDemo)}
-                  >
-                    Start two-minute demo ↗
-                  </button>
-                )}
-                <small>
-                  Demo cycle: 25 seconds to pay + 30 seconds grace + 60 seconds for payout
-                  requests.
-                  <br />
-                  Payouts are simulated; real PayPal settlement timing is external.
-                </small>
-              </section>
-              <section className="card">
-                <h2>Connect your sandbox member</h2>
-                <p>
-                  Each member uses their own PayPal sandbox account. Never share PayPal
-                  passwords here.
-                </p>
-                <div className="formgrid">
-                  {(["name", "email", "token", "circle"] as const).map((k) => (
-                    <label key={k}>
-                      {
-                        {
-                          name: "Name",
-                          email: "Your PayPal sandbox email",
-                          token: "Saved member token (optional)",
-                          circle: "Circle invite ID (optional)",
-                        }[k]
-                      }
-                      <input
-                        type={k === "token" ? "password" : "text"}
-                        value={registration[k]}
-                        onChange={(e) =>
-                          setRegistration({
-                            ...registration,
-                            [k]: e.target.value,
-                          })
-                        }
-                      />
-                    </label>
-                  ))}
-                  <label>
-                    New circle name
-                    <input
-                      value={circleName}
-                      onChange={(e) => setCircleName(e.target.value)}
-                    />
-                  </label>
-                  <p>
-                    Winner policy: member requests and discount bidding, with rotation
-                    fallback. A 60-second request window opens after the pot is funded.
-                  </p>
-                </div>
-                <button disabled={busy} onClick={() => run(register)}>
-                  Register / join circle
-                </button>
-              </section>
-            </>
+            <CircleLobby onOpen={openCircle} />
           ) : (
             <>
               <div className="title-row">
@@ -408,6 +349,29 @@ export default function Dashboard() {
               </div>
               {data && me && (
                 <>
+                  {data && (
+                    <p>
+                      {data.circle.visibility} circle · {data.circle.n_members} seats ·{" "}
+                      {money(data.circle.contribution)} monthly per member ·{" "}
+                      {money(me?.required_collateral || 0)} collateral per member
+                    </p>
+                  )}
+                  {data?.circle.pause_reason && (
+                    <div className="alert" role="alert">
+                      {data.circle.pause_reason}
+                    </div>
+                  )}
+                  {me && (
+                    <div className="notice">
+                      Payment defaults: {me.default_count ?? 0}/2.{" "}
+                      {me.barred_at
+                        ? "You are barred from this circle. Remaining balances are preserved for settlement."
+                        : Number(me.collateral) >= Number(me.required_collateral) &&
+                            data?.circle.status === "forming"
+                          ? "Your collateral is funded. Waiting for the remaining members and deposits to activate the circle."
+                          : ""}
+                    </div>
+                  )}
                   {deductions.length > 0 && (
                     <div className="alert" role="alert">
                       <b>{me.name}, your held deposit was used for a late payment.</b>
@@ -434,7 +398,7 @@ export default function Dashboard() {
                               ? cycle.request_closes_at
                                 ? "Time left to request the pot or update a discount. Settlement follows automatically."
                                 : "Contribution deadline and grace. Once the pot is funded, the payout request window opens."
-                              : "The timer begins only after all five collateral deposits are verified."}
+                              : `The timer begins only after all ${data.circle.n_members} collateral deposits are verified.`}
                           </p>
                           <span className="banner-tag">
                             ◇ Funded pots only · No manual winner overrides
@@ -473,24 +437,23 @@ export default function Dashboard() {
                         </p>
                         <p>
                           {config?.demo
-                            ? "No money is held at PayPal in this demo. All five member balances and transfers are simulated."
+                            ? "No money is held at PayPal in this demo. Member balances and transfers are simulated."
                             : "Approved deposits and contributions are captured into the configured PayPal business balance. Winner payouts originate from that same business account."}
                         </p>
                         <div className="actions">
                           <button
                             className="primary"
-                            disabled={busy || me.status === "exited"}
+                            disabled={
+                              busy ||
+                              me.status === "exited" ||
+                              !!me.barred_at ||
+                              (me.default_count ?? 0) >= 2 ||
+                              data.circle.status === "paused"
+                            }
                             onClick={() =>
                               run(async () => {
                                 if (data.circle.status === "forming") {
-                                  const proposal = await api<{
-                                    id: string;
-                                    member_id: string;
-                                    amount: number;
-                                    currency: string;
-                                  }>(`/members/${me.id}/deposit-proposal`, {});
-                                  setDepositProposal(proposal);
-                                  setDepositConfirmation("");
+                                  await depositCollateral();
                                 } else await pay("contribution");
                               })
                             }
@@ -501,19 +464,33 @@ export default function Dashboard() {
                             ↗
                           </button>
                           <button
-                            disabled={busy || me.status === "exited"}
+                            disabled={
+                              busy ||
+                              me.status === "exited" ||
+                              !!me.barred_at ||
+                              (me.default_count ?? 0) >= 2 ||
+                              data.circle.status === "paused"
+                            }
                             onClick={() => run(() => pay("topup"))}
                           >
                             Top up deposit
                           </button>
-                          <button
-                            onClick={() => {
-                              navigator.clipboard.writeText(data.circle.id);
-                              setNotice("Invite ID copied");
-                            }}
-                          >
-                            Copy circle invite
-                          </button>
+                          {(data.circle.visibility === "public" ||
+                            data.circle.invite_token) && (
+                            <button
+                              onClick={() => {
+                                const link =
+                                  data.circle.visibility === "private"
+                                    ? `${window.location.origin}/invite/${data.circle.id}?token=${data.circle.invite_token}`
+                                    : `${window.location.origin}/invite/${data.circle.id}`;
+                                void navigator.clipboard
+                                  .writeText(link)
+                                  .then(() => setNotice("Invite link copied"));
+                              }}
+                            >
+                              Copy circle invite
+                            </button>
+                          )}
                         </div>
                       </section>
                       {session.members && config?.demo && (
@@ -606,6 +583,54 @@ export default function Dashboard() {
                               {order.last_error && (
                                 <p role="status">{order.last_error}</p>
                               )}
+                              {!order.paypal_id &&
+                              !order.deposit_confirmed &&
+                              order.kind === "collateral" ? (
+                                <>
+                                  <p>
+                                    This deposit is waiting for your confirmation; no
+                                    PayPal checkout has started.
+                                  </p>
+                                  <button
+                                    disabled={busy || !!me.barred_at}
+                                    onClick={() => run(() => depositCollateral(order.id))}
+                                  >
+                                    Continue to PayPal
+                                  </button>
+                                </>
+                              ) : (
+                                !order.paypal_id && (
+                                  <>
+                                    <p>
+                                      This is a saved payment intent. No PayPal order has
+                                      been linked yet. Confirm a proposed deposit, or
+                                      retry checkout creation if confirmation already
+                                      failed.
+                                    </p>
+                                    <button
+                                      disabled={busy}
+                                      onClick={() =>
+                                        run(async () => {
+                                          const prepared = await api<Order>(
+                                            `/orders/${order.id}/prepare`,
+                                            {},
+                                          );
+                                          if (prepared.approval_url)
+                                            window.location.assign(prepared.approval_url);
+                                        })
+                                      }
+                                    >
+                                      Create / retry PayPal checkout
+                                    </button>
+                                  </>
+                                )
+                              )}
+                              {order.provider_status === "PENDING" && (
+                                <p>
+                                  PayPal reports capture pending. Funds are not credited
+                                  until PayPal confirms completion.
+                                </p>
+                              )}
                               {order.approval_url && (
                                 <a href={order.approval_url}>Resume PayPal approval</a>
                               )}
@@ -646,7 +671,17 @@ export default function Dashboard() {
                               field: "amount",
                               valueFormatter: (p) => money(p.value),
                             },
-                            { field: "status" },
+                            {
+                              field: "status",
+                              valueFormatter: (p) =>
+                                p.value === "completed"
+                                  ? "Funded"
+                                  : !p.data?.paypal_id
+                                    ? "Checkout not created"
+                                    : p.data?.provider_status === "PENDING"
+                                      ? "PayPal capture pending"
+                                      : "Awaiting approval / verification",
+                            },
                             {
                               field: "paypal_id",
                               headerName: "PayPal order ID",
@@ -712,59 +747,6 @@ export default function Dashboard() {
                         />
                       </section>
                     </>
-                  )}
-                  {depositProposal && depositProposal.member_id === me.id && (
-                    <section className="card" aria-label="Confirm deposit">
-                      <h2>Confirm your deposit</h2>
-                      <p>
-                        Transfer {money(depositProposal.amount)} from your account to the
-                        circle Treasurer as collateral.
-                      </p>
-                      <p>
-                        {config?.demo
-                          ? "This is a simulated transfer."
-                          : "The PayPal agent will open checkout. Approve with your own PayPal account; the agent captures the approved payment on return."}
-                      </p>
-                      <label>
-                        Type okay to confirm this amount
-                        <input
-                          value={depositConfirmation}
-                          onChange={(event) => setDepositConfirmation(event.target.value)}
-                          autoComplete="off"
-                        />
-                      </label>
-                      <button
-                        className="primary"
-                        disabled={
-                          busy || depositConfirmation.trim().toLowerCase() !== "okay"
-                        }
-                        onClick={() =>
-                          run(async () => {
-                            const result = await api<{
-                              status: string;
-                              approval_url?: string;
-                            }>(`/members/${me.id}/deposit-confirmation`, {
-                              order_id: depositProposal.id,
-                              confirmation: depositConfirmation,
-                            });
-                            if (result.approval_url) location.assign(result.approval_url);
-                            else if (result.status === "completed") {
-                              setDepositProposal(null);
-                              setNotice(
-                                config?.demo
-                                  ? "Simulated deposit received by Treasurer."
-                                  : "Deposit confirmed.",
-                              );
-                            } else throw new Error("PayPal approval is still required");
-                          })
-                        }
-                      >
-                        Okay, deposit {money(depositProposal.amount)}
-                      </button>
-                      <button disabled={busy} onClick={() => setDepositProposal(null)}>
-                        Cancel
-                      </button>
-                    </section>
                   )}
                   {(data.circle.rules_json.request_window_seconds ||
                     data.circle.mode === "auction") &&

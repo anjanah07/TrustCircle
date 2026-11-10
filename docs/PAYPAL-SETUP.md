@@ -57,7 +57,7 @@ npm start
 The checker makes no payment mutations. Startup applies schema migrations only after required configuration is present, then rejects any selected schema containing simulation circles. The synthetic fixture and simulated capture branches are disabled in PayPal mode.
 
 1. Register all five actual sandbox members and join one new USD circle.
-2. Each member confirms the displayed deposit with `okay`, approves PayPal checkout, and verifies a completed capture in Transactions and the Treasurer's sandbox account.
+2. Each member clicks Deposit collateral, approves PayPal checkout, and verifies a completed capture in Transactions and the Treasurer's sandbox account.
 3. Approval webhooks can capture even if the member closes the browser before returning. Background reconciliation retries and checks pending captures. No ledger credit occurs until PayPal confirms completion.
 4. After activation, each member contributes through PayPal. On full funding, the 60-second request window opens.
 5. Submit requests/discounts. Verify the eligible highest-discount winner and equal discount shares, subject to the existing retention policy.
@@ -73,6 +73,6 @@ The new automated contract tests replace transport, so they verify code paths wi
 - Autonomous worker: checks uncompleted orders, selects payout recipients under circle rules, submits payout requests and tracks recipient-item results.
 - UI: explicit PayPal approval, checkout cancellation notice, resume/check controls, provider status, capture and payout identifiers.
 
-The flow uses immediate-capture orders. Deferred authorization, arbitrary order edits, shipment tracking, saved-wallet mandates and live-money operation are not part of this savings-circle checkout flow. An in-app `okay` does not replace PayPal buyer approval.
+The flow uses immediate-capture orders. Deferred authorization, arbitrary order edits, shipment tracking, saved-wallet mandates and live-money operation are not part of this savings-circle checkout flow. The deposit button does not replace PayPal buyer approval.
 
 References: [Orders checkout flow](https://developer.paypal.com/whats-an-order/), [webhook events](https://developer.paypal.com/api/rest/webhooks/event-names/).

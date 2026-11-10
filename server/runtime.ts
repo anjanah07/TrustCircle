@@ -1,3 +1,4 @@
+import { reviewDefaults } from "./defaultAgent";
 import { paypalConfigurationIssues, deploymentSetup } from "./paypalConfig";
 import { demo, migrate, tx } from "./db";
 import { scheduler } from "./cycleEngine";
@@ -55,6 +56,7 @@ async function runScheduledWork(): Promise<void> {
   try {
     void reconcileOrders().catch(console.error);
     await scheduler();
+    void reviewDefaults().catch(console.error);
     await processPayouts();
     void explainDecisions().catch(console.error);
   } catch (error) {

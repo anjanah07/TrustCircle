@@ -108,6 +108,32 @@ export async function migrate() {
         await c.query("COMMIT");
       }
     }
+    if (!(await c.query("SELECT * FROM migrations WHERE version=5")).rows.length) {
+      const sql = await readFile(`${process.cwd()}/server/migration-005.sql`, "utf8");
+      await c.query("BEGIN");
+      try {
+        if (embedded) await embedded.exec(sql);
+        else await c.query(sql);
+        await c.query("INSERT INTO migrations VALUES(5)");
+        await c.query("COMMIT");
+      } catch (error) {
+        await c.query("ROLLBACK");
+        throw error;
+      }
+    }
+    if (!(await c.query("SELECT * FROM migrations WHERE version=6")).rows.length) {
+      const sql = await readFile(`${process.cwd()}/server/migration-006.sql`, "utf8");
+      await c.query("BEGIN");
+      try {
+        if (embedded) await embedded.exec(sql);
+        else await c.query(sql);
+        await c.query("INSERT INTO migrations VALUES(6)");
+        await c.query("COMMIT");
+      } catch (error) {
+        await c.query("ROLLBACK");
+        throw error;
+      }
+    }
   } finally {
     if (!embedded) c.release();
   }

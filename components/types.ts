@@ -18,6 +18,9 @@ export interface Member {
   retention: number;
   trust_score: number;
   has_won: boolean;
+  default_count: number;
+  barred_at: string | null;
+  required_collateral: string;
   debt: string;
 }
 export interface Contribution {
@@ -82,6 +85,9 @@ export interface Snapshot {
     status: string;
     current_cycle: number;
     mode: string;
+    visibility: "public" | "private";
+    invite_token?: string;
+    pause_reason?: string;
     rules_json: { demo_cycle_seconds?: number; request_window_seconds?: number };
   };
   members: Member[];

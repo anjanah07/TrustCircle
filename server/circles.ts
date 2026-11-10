@@ -15,9 +15,26 @@ export async function register(c: DB, name: string, email: string, locale = "en"
   return { ...user, token };
 }
 export async function createCircle(c: DB, input: any) {
-  const amount = money(input.contribution ?? 50000);
-  requireThat(amount > 0, "Contribution must be positive");
   const n = Number(input.n_members ?? 5);
+  const payout = input.monthly_payout == null ? null : money(input.monthly_payout);
+  requireThat(
+    payout === null || payout % n === 0,
+    "Monthly payout must divide equally among members in whole cents",
+  );
+  const amount = money(payout === null ? (input.contribution ?? 50000) : payout / n);
+  const collateral = money(input.collateral_amount ?? amount * 3);
+  requireThat(
+    collateral >= amount,
+    "Collateral must cover at least one monthly contribution",
+  );
+  const visibility = input.visibility ?? "private";
+  requireThat(["public", "private"].includes(visibility), "Invalid circle visibility");
+  const minimum = input.min_trust_score ?? 50;
+  requireThat(
+    Number.isInteger(minimum) && minimum >= 50 && minimum <= 100,
+    "Minimum trust score must be 50–100",
+  );
+  requireThat(amount > 0, "Contribution must be positive");
   requireThat(Number.isInteger(n) && n >= 2 && n <= 10, "Circle size must be 2–10");
   requireThat(
     ["rotation", "auction"].includes(input.mode ?? "rotation"),
@@ -25,7 +42,7 @@ export async function createCircle(c: DB, input: any) {
   );
   return (
     await c.query(
-      "INSERT INTO circles(name,contribution,n_members,mode,currency,late_fee,rules_json) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",
+      "INSERT INTO circles(name,contribution,n_members,mode,currency,late_fee,rules_json,creator_id,visibility,min_trust_score,collateral_amount) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *",
       [
         input.name || "The Friday Circle",
         amount,
@@ -41,23 +58,56 @@ export async function createCircle(c: DB, input: any) {
             ? { request_window_seconds: input.request_window_seconds }
             : {}),
         }),
+        input.creator_id ?? null,
+        visibility,
+        minimum,
+        collateral,
       ],
     )
   ).rows[0];
 }
-export async function join(c: DB, circleId: string, userId: string) {
+export async function join(
+  c: DB,
+  circleId: string,
+  userId: string,
+  inviteToken?: string,
+) {
   const circle = (await c.query("SELECT * FROM circles WHERE id=$1", [circleId])).rows[0];
   requireThat(circle, "Circle not found");
   const members = (await c.query("SELECT * FROM members WHERE circle_id=$1", [circleId]))
     .rows;
   const old = members.find((m) => m.user_id === userId);
-  if (old) return old;
+  if (old) {
+    requireThat(
+      !old.barred_at,
+      "You are barred from this circle after two payment defaults",
+    );
+    return old;
+  }
+  if (circle.visibility === "public") {
+    const user = (await c.query("SELECT trust_score FROM users WHERE id=$1", [userId]))
+      .rows[0];
+    requireThat(
+      user && user.trust_score >= circle.min_trust_score,
+      `This public circle requires a trust score of ${circle.min_trust_score}`,
+    );
+  } else if (circle.creator_id && circle.creator_id !== userId) {
+    requireThat(
+      inviteToken && tokenHash(inviteToken) === tokenHash(circle.invite_token),
+      "A valid private circle invite link is required",
+    );
+  }
   requireThat(circle.status === "forming", "Circle is not accepting members");
   requireThat(members.length < circle.n_members, "Circle is full");
   return (
     await c.query(
       "INSERT INTO members(circle_id,user_id,slot,required_collateral) VALUES($1,$2,$3,$4) RETURNING *",
-      [circleId, userId, members.length + 1, Number(circle.contribution) * 3],
+      [
+        circleId,
+        userId,
+        members.length + 1,
+        Number(circle.collateral_amount ?? Number(circle.contribution) * 3),
+      ],
     )
   ).rows[0];
 }
@@ -134,7 +184,7 @@ export async function snapshot(c: DB, id: string) {
     cycles,
     decisions: (
       await c.query(
-        "SELECT id,tool,decision,result,created_at FROM agent_actions WHERE circle_id=$1 AND tool IN ('cycle_decision','agent_explanation') ORDER BY id DESC LIMIT 30",
+        "SELECT id,tool,decision,result,created_at FROM agent_actions WHERE circle_id=$1 AND tool IN ('cycle_decision','agent_explanation','bar_member') ORDER BY id DESC LIMIT 30",
         [id],
       )
     ).rows,

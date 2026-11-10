@@ -53,6 +53,11 @@ export async function createOrder(
     )
   ).rows[0];
   requireThat(m && m.status !== "exited", "Invalid member");
+  requireThat(
+    !m.barred_at && m.default_count < 2,
+    "Payments are disabled after two defaults; request settlement",
+  );
+  requireThat(m.circle_status !== "paused", "Circle is paused for reconciliation");
   let cycle: any = null;
   let amount = Number(m.required_collateral);
   if (kind === "contribution") {
@@ -84,6 +89,14 @@ export async function createOrder(
       [requestKey, m.id, cycle?.id ?? null],
     )
   ).rows[0];
+  if (!order && kind !== "contribution") {
+    order = (
+      await c.query(
+        "SELECT * FROM payment_orders WHERE member_id=$1 AND kind=$2 AND status='created' ORDER BY created_at DESC LIMIT 1",
+        [m.id, kind],
+      )
+    ).rows[0];
+  }
   if (order)
     requireThat(
       order.member_id === m.id && order.kind === kind,
@@ -100,14 +113,55 @@ export async function createOrder(
 }
 // Called after committing the intent, so network retries use the same persisted UUID.
 export async function prepareOrder(id: string) {
+  try {
+    return await prepareOrderIntent(id);
+  } catch (error) {
+    await tx((c) =>
+      c.query(
+        "UPDATE payment_orders SET last_error=$2,last_checked_at=now() WHERE id=$1",
+        [id, error instanceof Error ? error.message : "PayPal checkout creation failed"],
+      ),
+    );
+    throw error;
+  }
+}
+async function prepareOrderIntent(id: string) {
   const order = await tx(
     async (c) =>
       (await c.query("SELECT * FROM payment_orders WHERE id=$1", [id])).rows[0],
   );
+  requireThat(order, "Order not found");
+  const member = await tx(
+    async (c) =>
+      (
+        await c.query(
+          "SELECT m.*,ci.status AS circle_status FROM members m JOIN circles ci ON ci.id=m.circle_id WHERE m.id=$1",
+          [order.member_id],
+        )
+      ).rows[0],
+  );
+  requireThat(
+    member &&
+      !member.barred_at &&
+      member.default_count < 2 &&
+      member.status !== "exited" &&
+      member.circle_status !== "paused",
+    "Payment creation unavailable for this member",
+  );
   if (demo) return { id, mode: "demo" };
   if (order.paypal_id) return order;
+  // A proposal is not a provider attempt. Start the retry clock at first checkout creation.
+  const started = await tx(
+    async (c) =>
+      (
+        await c.query(
+          "UPDATE payment_orders SET creation_started_at=COALESCE(creation_started_at,now()) WHERE id=$1 RETURNING creation_started_at",
+          [id],
+        )
+      ).rows[0].creation_started_at,
+  );
   requireThat(
-    Date.now() - +new Date(order.created_at) < 3 * 3600000,
+    Date.now() - +new Date(started) < 3 * 3600000,
     "Order creation retry window expired; reconcile provider records before creating another intent",
   );
   requireThat(order.currency === "USD", "PayPal toolkit orders require USD");
@@ -201,7 +255,7 @@ export async function applyCapture(c: DB, order: any, capture: any) {
   );
   if ((await balance(c, `collateral:${m.id}`)) >= Number(m.required_collateral))
     await c.query(
-      "UPDATE members SET status=CASE WHEN status='suspended' THEN 'active' ELSE status END,topup_deadline=NULL WHERE id=$1",
+      "UPDATE members SET status=CASE WHEN status='suspended' THEN 'active' ELSE status END,topup_deadline=NULL WHERE id=$1 AND barred_at IS NULL AND default_count<2",
       [m.id],
     );
   await activate(c, m.circle_id);

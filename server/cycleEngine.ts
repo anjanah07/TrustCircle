@@ -108,6 +108,23 @@ export async function tick(c: DB, id: string) {
         Number(circle.late_fee) - fee,
       ]);
       await trust(c, due.user_id, "deduction", -10, cycle.id);
+      const member = (
+        await c.query(
+          "UPDATE members SET default_count=default_count+1 WHERE id=$1 RETURNING default_count",
+          [due.member_id],
+        )
+      ).rows[0];
+      if (member.default_count >= 2) {
+        // Immediate eligibility guard while the autonomous Treasurer reviews the event.
+        await c.query(
+          "UPDATE members SET status='suspended',topup_deadline=NULL WHERE id=$1",
+          [due.member_id],
+        );
+        await c.query("UPDATE circles SET status='paused',pause_reason=$2 WHERE id=$1", [
+          id,
+          "Second payment default: Treasurer review and funding reconciliation required.",
+        ]);
+      }
     }
     const retainedCoverage = Math.min(
       remaining - covered,
@@ -129,7 +146,13 @@ export async function tick(c: DB, id: string) {
       "UPDATE contributions SET funded=$2,default_processed=true,status=CASE WHEN $2=amount THEN 'covered' ELSE 'pending' END WHERE id=$1",
       [due.id, funded],
     );
-    if ((await balance(c, `collateral:${due.member_id}`)) < Number(circle.contribution)) {
+    const updatedMember = (
+      await c.query("SELECT default_count FROM members WHERE id=$1", [due.member_id])
+    ).rows[0];
+    if (
+      updatedMember.default_count < 2 &&
+      (await balance(c, `collateral:${due.member_id}`)) < Number(circle.contribution)
+    ) {
       await c.query(
         "UPDATE members SET topup_deadline=COALESCE(topup_deadline,$2) WHERE id=$1",
         [due.member_id, new Date(+now + 3 * 86400000)],

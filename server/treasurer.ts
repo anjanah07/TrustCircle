@@ -22,6 +22,7 @@ export async function tool(c: DB, name: string, args: any, memberId: string) {
   const member = (await c.query("SELECT * FROM members WHERE id=$1", [memberId])).rows[0];
   requireThat(member, "Member not found");
   const state = await snapshot(c, member.circle_id);
+  if (state.circle.creator_id !== member.user_id) delete state.circle.invite_token;
   const current = state.cycles.at(-1);
   let result: any;
   switch (name) {
