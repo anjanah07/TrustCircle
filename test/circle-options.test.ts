@@ -60,10 +60,18 @@ test("custom payout and collateral, private invitation authorization and token p
     200,
   );
   await tx((c) => join(c, circle.id, guest.id, circle.invite_token));
+  await tx((c) =>
+    c.query(
+      "INSERT INTO payouts(idempotency_key,member_id,receiver,amount,purpose,status) VALUES($1,$2,$3,50000,'winner','succeeded')",
+      [randomUUID(), first.id, "private-recipient@example.test"],
+    ),
+  );
   const state = await (await getCirclesId(context(guest, circle.id))).json();
+  assert.equal(state.payouts[0].receiver, undefined);
   assert.equal(state.circle.invite_token, undefined);
   const own = await (await getCirclesId(context(owner, circle.id))).json();
   assert.equal(own.circle.invite_token, circle.invite_token);
+  assert.equal(own.payouts[0].receiver, "private-recipient@example.test");
   await assert.rejects(getCirclesId(context(outsider, circle.id)), /access/);
   await assert.rejects(
     tx((c) => createCircle(c, { monthly_payout: 10000, n_members: 3 })),

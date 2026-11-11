@@ -1,6 +1,6 @@
 import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { tx } from "./db";
+import { read, tx } from "./db";
 import { register, tokenHash } from "./circles";
 import type { ApiContext } from "./http";
 
@@ -37,7 +37,7 @@ export function sessionToken(headers: Record<string, string>) {
 export async function sessionUser(headers: Record<string, string>) {
   const token = sessionToken(headers);
   if (!token) return null;
-  return tx(
+  return read(
     async (c) =>
       (
         await c.query(
@@ -150,7 +150,7 @@ export async function authenticate(context: ApiContext, signup: boolean) {
         );
       return issue(user);
     }
-    const user = await tx(
+    const user = await read(
       async (c) =>
         (await c.query("SELECT * FROM users WHERE username=$1", [input.username]))
           .rows[0],

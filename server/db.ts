@@ -53,6 +53,31 @@ export async function tx<T>(fn: (c: DB) => Promise<T>): Promise<T> {
   state.queue = result.catch(() => {});
   return result;
 }
+// Consistent dashboard/auth reads must not wait for the money-engine lock.
+// PostgreSQL rejects writes in this transaction. PGlite shares one connection,
+// so its reads still use the existing queue to avoid interleaving transactions.
+export async function read<T>(fn: (c: DB) => Promise<T>): Promise<T> {
+  const state = database();
+  const run = async () => {
+    const c: any = state.embedded || (await state.pool!.connect());
+    try {
+      await c.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
+      const result = await fn(c);
+      await c.query("COMMIT");
+      return result;
+    } catch (error) {
+      await c.query("ROLLBACK");
+      throw error;
+    } finally {
+      if (!state.embedded) c.release();
+    }
+  };
+  if (!state.embedded) return run();
+  const result = state.queue.then(run, run);
+  state.queue = result.catch(() => {});
+  return result;
+}
+
 export async function migrate() {
   const { embedded, pool } = database();
   const c: any = embedded || (await pool!.connect());

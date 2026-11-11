@@ -51,6 +51,7 @@ export interface Ledger {
   created_at: string;
 }
 export interface Payout {
+  receiver?: string;
   id: string;
   member_id: string;
   amount: string;

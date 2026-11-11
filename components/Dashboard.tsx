@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Grid from "./Grid";
 import CircleLobby from "./CircleLobby";
+import PayoutNotifications from "./PayoutNotifications";
 import type { Session, Snapshot, Config, Account, Ledger, Payout, Member } from "./types";
 type Order = {
   id: string;
@@ -162,6 +163,60 @@ export default function Dashboard() {
   }, [session]);
   const me = data?.members.find((m) => m.id === session?.memberId),
     cycle = data?.cycles.at(-1);
+  const requestOpen = Boolean(
+    cycle &&
+    cycle.status !== "closed" &&
+    cycle.request_opened_at &&
+    cycle.request_closes_at &&
+    now >= new Date(cycle.request_opened_at).getTime() &&
+    now < new Date(cycle.request_closes_at).getTime(),
+  );
+  const canRequestPayout = Boolean(
+    data?.circle.status === "active" &&
+    me?.status === "active" &&
+    !me.has_won &&
+    !me.barred_at &&
+    (me.default_count ?? 0) < 2 &&
+    cycle &&
+    cycle.status !== "closed" &&
+    (data.circle.rules_json.request_window_seconds
+      ? requestOpen
+      : data.circle.mode === "auction"),
+  );
+  const contributionDue =
+    cycle?.contributions.find((entry) => entry.member_id === me?.id)?.status ===
+    "pending";
+  const ownBid = cycle?.bids.some((entry) => entry.member_id === me?.id);
+  const primaryAction =
+    data?.circle.status === "forming"
+      ? Number(me?.collateral) >= Number(me?.required_collateral)
+        ? "Collateral funded"
+        : "Deposit collateral"
+      : data?.circle.status === "paused"
+        ? "Circle paused"
+        : data?.circle.status === "completed"
+          ? "Circle completed"
+          : cycle?.request_closes_at
+            ? !requestOpen
+              ? "Settlement in progress"
+              : me?.has_won
+                ? "Payout already received"
+                : ownBid
+                  ? "Update payout request"
+                  : "Request payout"
+            : contributionDue
+              ? "Pay this cycle"
+              : "Contribution received";
+  const primaryDisabled =
+    busy ||
+    !me ||
+    me.status === "exited" ||
+    !!me.barred_at ||
+    (me.default_count ?? 0) >= 2 ||
+    (data?.circle.status === "forming"
+      ? Number(me.collateral) >= Number(me.required_collateral)
+      : data?.circle.status !== "active" ||
+        (cycle?.request_closes_at ? !canRequestPayout : !contributionDue));
   const money = (n: unknown) =>
     new Intl.NumberFormat("en-IN", {
       style: "currency",
@@ -372,6 +427,14 @@ export default function Dashboard() {
                           : ""}
                     </div>
                   )}
+                  {me && config && (
+                    <PayoutNotifications
+                      payouts={data.payouts}
+                      memberId={me.id}
+                      currency={data.circle.currency}
+                      simulated={config.demo}
+                    />
+                  )}
                   {deductions.length > 0 && (
                     <div className="alert" role="alert">
                       <b>{me.name}, your held deposit was used for a late payment.</b>
@@ -443,25 +506,28 @@ export default function Dashboard() {
                         <div className="actions">
                           <button
                             className="primary"
-                            disabled={
-                              busy ||
-                              me.status === "exited" ||
-                              !!me.barred_at ||
-                              (me.default_count ?? 0) >= 2 ||
-                              data.circle.status === "paused"
-                            }
-                            onClick={() =>
-                              run(async () => {
-                                if (data.circle.status === "forming") {
+                            disabled={primaryDisabled}
+                            onClick={() => {
+                              if (requestOpen) {
+                                document
+                                  .getElementById("payout-request")
+                                  ?.scrollIntoView({
+                                    behavior: "smooth",
+                                    block: "center",
+                                  });
+                                document
+                                  .getElementById("payout-discount")
+                                  ?.focus({ preventScroll: true });
+                                return;
+                              }
+                              void run(async () => {
+                                if (data.circle.status === "forming")
                                   await depositCollateral();
-                                } else await pay("contribution");
-                              })
-                            }
+                                else await pay("contribution");
+                              });
+                            }}
                           >
-                            {data.circle.status === "forming"
-                              ? "Deposit collateral"
-                              : "Pay this cycle"}{" "}
-                            ↗
+                            {primaryAction} ↗
                           </button>
                           <button
                             disabled={
@@ -751,7 +817,7 @@ export default function Dashboard() {
                   {(data.circle.rules_json.request_window_seconds ||
                     data.circle.mode === "auction") &&
                     data.circle.status === "active" && (
-                      <section className="card">
+                      <section className="card" id="payout-request">
                         <h2>Request this round’s payout</h2>
                         <p>
                           {cycle?.request_closes_at
@@ -778,17 +844,14 @@ export default function Dashboard() {
                                 type="number"
                                 min="0"
                                 step="0.01"
+                                id="payout-discount"
+                                disabled={busy || !canRequestPayout}
                                 value={bid}
                                 onChange={(event) => setBid(event.target.value)}
                               />
                             </label>
                             <button
-                              disabled={
-                                busy ||
-                                (Boolean(data.circle.rules_json.request_window_seconds) &&
-                                  (!cycle?.request_closes_at ||
-                                    now >= new Date(cycle.request_closes_at).getTime()))
-                              }
+                              disabled={busy || !canRequestPayout}
                               onClick={() =>
                                 run(async () => {
                                   await api(`/members/${me.id}/bid`, {

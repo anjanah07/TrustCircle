@@ -1,6 +1,6 @@
 import { deploymentSetup } from "./paypalConfig";
 import { z } from "zod";
-import { tx, demo } from "./db";
+import { read, demo } from "./db";
 import { sessionUser } from "./auth";
 import { appOrigin } from "./paypalConfig";
 import { tokenHash } from "./circles";
@@ -21,6 +21,7 @@ export function handle(
   options: { public: boolean; setupAllowed?: boolean },
 ) {
   return async (request: Request, route: RouteContext): Promise<Response> => {
+    const started = performance.now();
     try {
       if (deploymentSetup() && !options.setupAllowed) {
         return Response.json(
@@ -48,7 +49,7 @@ export function handle(
       if (!options.public) {
         const token = demo ? headers.authorization?.replace(/^Bearer /, "") : null;
         if (token)
-          user = await tx(
+          user = await read(
             async (c) =>
               (
                 await c.query("SELECT * FROM users WHERE token_hash=$1", [
@@ -95,6 +96,10 @@ export function handle(
         user,
       });
       response.headers.set("Cache-Control", "no-store");
+      response.headers.set(
+        "Server-Timing",
+        `app;dur=${(performance.now() - started).toFixed(1)}`,
+      );
       return response;
     } catch (error) {
       const validation = error instanceof z.ZodError;

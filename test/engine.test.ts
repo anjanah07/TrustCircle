@@ -468,3 +468,54 @@ test("button confirmation authorizes only the member's specific deposit and repe
   await confirmDeposit(f.members[0].id, proposal.id, true);
   assert.equal(await tx((c) => balance(c, `collateral:${f.members[0].id}`)), 150000);
 });
+
+test("snapshot batches balances without depending on the truncated activity feed", async () => {
+  const f = await fixture(5);
+  await fund(f);
+  await tx(async (c) => {
+    // More entries than the visible activity feed, including debits and credits.
+    for (let i = 0; i < 205; i++) {
+      await post(
+        c,
+        f.circle.id,
+        f.members[0].id,
+        "external",
+        `dividend:${f.members[0].id}`,
+        1,
+        "test",
+        randomUUID(),
+      );
+    }
+    await post(
+      c,
+      f.circle.id,
+      f.members[0].id,
+      `dividend:${f.members[0].id}`,
+      "external",
+      5,
+      "test",
+      randomUUID(),
+    );
+    let queries = 0;
+    const state = await snapshot(
+      {
+        query: (sql, values) => {
+          queries++;
+          return c.query(sql, values);
+        },
+      },
+      f.circle.id,
+    );
+    assert.equal(queries, 11);
+    assert.equal(state.ledger.length, 200);
+    for (const m of state.members) {
+      for (const account of ["collateral", "retention", "dividend"]) {
+        assert.equal(m[account], await balance(c, `${account}:${m.id}`));
+      }
+    }
+    assert.equal(state.members[0].dividend, 200);
+    for (const cycle of state.cycles) {
+      assert.equal(cycle.pot, await balance(c, `pot:${cycle.id}`));
+    }
+  });
+});

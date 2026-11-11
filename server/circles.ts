@@ -158,25 +158,45 @@ export async function snapshot(c: DB, id: string) {
       [id],
     )
   ).rows;
+  // Aggregate the complete ledger once; the 200-row activity feed below is
+  // deliberately not used for balances.
+  const entries = (
+    await c.query(
+      `SELECT account, SUM(amount) AS balance FROM (
+        SELECT credit_account AS account, amount FROM ledger WHERE circle_id=$1
+        UNION ALL
+        SELECT debit_account AS account, -amount FROM ledger WHERE circle_id=$1
+      ) entries GROUP BY account`,
+      [id],
+    )
+  ).rows;
+  const balances = new Map(
+    entries.map((entry) => [entry.account, Number(entry.balance)]),
+  );
   for (const m of members) {
-    m.collateral = await balance(c, `collateral:${m.id}`);
-    m.retention = await balance(c, `retention:${m.id}`);
-    m.dividend = await balance(c, `dividend:${m.id}`);
+    m.collateral = balances.get(`collateral:${m.id}`) ?? 0;
+    m.retention = balances.get(`retention:${m.id}`) ?? 0;
+    m.dividend = balances.get(`dividend:${m.id}`) ?? 0;
   }
   const cycles = (
     await c.query("SELECT * FROM cycles WHERE circle_id=$1 ORDER BY n", [id])
   ).rows;
+  const contributions = (
+    await c.query(
+      "SELECT co.* FROM contributions co JOIN cycles cy ON cy.id=co.cycle_id WHERE cy.circle_id=$1",
+      [id],
+    )
+  ).rows;
+  const bids = (
+    await c.query(
+      "SELECT b.* FROM bids b JOIN cycles cy ON cy.id=b.cycle_id WHERE cy.circle_id=$1 ORDER BY b.discount DESC,b.created_at",
+      [id],
+    )
+  ).rows;
   for (const cy of cycles) {
-    cy.pot = await balance(c, `pot:${cy.id}`);
-    cy.contributions = (
-      await c.query("SELECT * FROM contributions WHERE cycle_id=$1", [cy.id])
-    ).rows;
-    cy.bids = (
-      await c.query(
-        "SELECT * FROM bids WHERE cycle_id=$1 ORDER BY discount DESC,created_at",
-        [cy.id],
-      )
-    ).rows;
+    cy.pot = balances.get(`pot:${cy.id}`) ?? 0;
+    cy.contributions = contributions.filter((entry) => entry.cycle_id === cy.id);
+    cy.bids = bids.filter((entry) => entry.cycle_id === cy.id);
   }
   return {
     circle,

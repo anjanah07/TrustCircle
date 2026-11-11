@@ -1,7 +1,7 @@
 import { deploymentSetup } from "./paypalConfig";
 import { proposeDeposit, confirmDeposit } from "./deposit";
 import { z } from "zod";
-import { tx, demo } from "./db";
+import { read, tx, demo } from "./db";
 import { createCircle, register, join, snapshot } from "./circles";
 import { createOrder, prepareOrder, captureOrder, processPayouts } from "./paypal";
 import { tick, closeCycle, message } from "./cycleEngine";
@@ -14,7 +14,7 @@ import { treasurer } from "./treasurer";
 import { requireThat } from "./policy";
 import type { ApiContext } from "./http";
 async function ownMember(user: string, id: string) {
-  return tx(async (c) => {
+  return read(async (c) => {
     const m = (
       await c.query("SELECT * FROM members WHERE id=$1 AND user_id=$2", [id, user])
     ).rows[0];
@@ -23,7 +23,7 @@ async function ownMember(user: string, id: string) {
   });
 }
 async function access(user: string, id: string) {
-  return tx(async (c) => {
+  return read(async (c) => {
     const m = (
       await c.query("SELECT * FROM members WHERE circle_id=$1 AND user_id=$2", [id, user])
     ).rows[0];
@@ -110,7 +110,7 @@ export async function getMe(context: ApiContext): Promise<Response> {
 }
 export async function getCircles(context: ApiContext): Promise<Response> {
   const response = Response.json(
-    await tx(
+    await read(
       async (c) =>
         (
           await c.query(
@@ -160,24 +160,31 @@ export async function postCirclesIdJoin(context: ApiContext): Promise<Response> 
   return response;
 }
 export async function getCirclesId(context: ApiContext): Promise<Response> {
-  const m = await access(context.user.id, context.params.id);
-  const state = await tx((c) => snapshot(c, context.params.id));
-  if (state.circle.creator_id !== context.user.id) delete state.circle.invite_token;
-  for (const p of state.payouts) delete p.receiver;
-  const response = Response.json({
-    ...state,
-    ownOrders: await tx(
-      async (c) =>
-        (
-          await c.query(
-            "SELECT p.id,p.kind,p.amount,p.currency,p.paypal_id,p.capture_id,p.status,p.provider_status,p.last_error,p.approval_url,EXISTS(SELECT 1 FROM agent_actions a WHERE a.tool='confirm_deposit' AND a.args->>'order_id'=p.id::text) AS deposit_confirmed FROM payment_orders p WHERE p.member_id=$1",
-            [m.id],
-          )
-        ).rows,
-    ),
-  });
-  return response;
+  return Response.json(
+    await read(async (c) => {
+      const m = (
+        await c.query("SELECT id FROM members WHERE circle_id=$1 AND user_id=$2", [
+          context.params.id,
+          context.user.id,
+        ])
+      ).rows[0];
+      requireThat(m, "Circle access denied");
+      const state = await snapshot(c, context.params.id);
+      if (state.circle.creator_id !== context.user.id) delete state.circle.invite_token;
+      for (const p of state.payouts) {
+        if (p.member_id !== m.id) delete p.receiver;
+      }
+      const ownOrders = (
+        await c.query(
+          "SELECT p.id,p.kind,p.amount,p.currency,p.paypal_id,p.capture_id,p.status,p.provider_status,p.last_error,p.approval_url,EXISTS(SELECT 1 FROM agent_actions a WHERE a.tool='confirm_deposit' AND a.args->>'order_id'=p.id::text) AS deposit_confirmed FROM payment_orders p WHERE p.member_id=$1",
+          [m.id],
+        )
+      ).rows;
+      return { ...state, ownOrders };
+    }),
+  );
 }
+
 export async function postMembersIdOrders(context: ApiContext): Promise<Response> {
   await ownMember(context.user.id, context.params.id);
   const b = z
@@ -191,7 +198,7 @@ export async function postMembersIdOrders(context: ApiContext): Promise<Response
   return response;
 }
 export async function postOrdersIdCapture(context: ApiContext): Promise<Response> {
-  const m = await tx(
+  const m = await read(
     async (c) =>
       (
         await c.query(
@@ -323,7 +330,7 @@ export async function postDepositConfirmation(context: ApiContext): Promise<Resp
 
 export async function getPublicCircles(context: ApiContext): Promise<Response> {
   return Response.json(
-    await tx(
+    await read(
       async (c) =>
         (
           await c.query(
@@ -335,7 +342,7 @@ export async function getPublicCircles(context: ApiContext): Promise<Response> {
 }
 export async function getCirclePreview(context: ApiContext): Promise<Response> {
   const token = context.headers["x-circle-invite"];
-  return tx(async (c) => {
+  return read(async (c) => {
     const circle = (
       await c.query(
         "SELECT c.*, (SELECT count(*)::int FROM members WHERE circle_id=c.id) AS joined FROM circles c WHERE c.id=$1",
@@ -364,7 +371,7 @@ export async function getCirclePreview(context: ApiContext): Promise<Response> {
   });
 }
 export async function postOrderPrepare(context: ApiContext): Promise<Response> {
-  const order = await tx(
+  const order = await read(
     async (c) =>
       (await c.query("SELECT * FROM payment_orders WHERE id=$1", [context.params.id]))
         .rows[0],
