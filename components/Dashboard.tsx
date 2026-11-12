@@ -163,15 +163,20 @@ export default function Dashboard() {
   }, [session]);
   const me = data?.members.find((m) => m.id === session?.memberId),
     cycle = data?.cycles.at(-1);
+  const timerPaused = Boolean(data?.circle.timer_paused_at);
+  const timerNow = data?.circle.timer_paused_at
+    ? new Date(data.circle.timer_paused_at).getTime()
+    : now;
   const requestOpen = Boolean(
     cycle &&
     cycle.status !== "closed" &&
     cycle.request_opened_at &&
     cycle.request_closes_at &&
-    now >= new Date(cycle.request_opened_at).getTime() &&
-    now < new Date(cycle.request_closes_at).getTime(),
+    timerNow >= new Date(cycle.request_opened_at).getTime() &&
+    timerNow < new Date(cycle.request_closes_at).getTime(),
   );
   const canRequestPayout = Boolean(
+    !timerPaused &&
     data?.circle.status === "active" &&
     me?.status === "active" &&
     !me.has_won &&
@@ -282,7 +287,7 @@ export default function Dashboard() {
     ? Math.max(
         0,
         Math.ceil(
-          (+new Date(cycle.request_closes_at || cycle.grace_end_at) - now) / 1000,
+          (+new Date(cycle.request_closes_at || cycle.grace_end_at) - timerNow) / 1000,
         ),
       )
     : 0;
@@ -457,15 +462,65 @@ export default function Dashboard() {
                               : "Build trust. Move together."}
                           </h2>
                           <p>
-                            {cycle
-                              ? cycle.request_closes_at
-                                ? "Time left to request the pot or update a discount. Settlement follows automatically."
-                                : "Contribution deadline and grace. Once the pot is funded, the payout request window opens."
-                              : `The timer begins only after all ${data.circle.n_members} collateral deposits are verified.`}
+                            {timerPaused
+                              ? "Timer paused by the creator. Automatic defaults and settlement will wait until it resumes."
+                              : cycle
+                                ? cycle.request_closes_at
+                                  ? "Time left to request the pot or update a discount. Settlement follows automatically."
+                                  : "Contribution deadline and grace. Once the pot is funded, the payout request window opens."
+                                : `The timer begins only after all ${data.circle.n_members} collateral deposits are verified.`}
                           </p>
                           <span className="banner-tag">
                             ◇ Funded pots only · No manual winner overrides
                           </span>
+                          {data.circle.rules_json.demo_cycle_seconds === 60 && (
+                            <p>
+                              Demo timing: 30 seconds to contribute + 30 seconds grace.
+                              Bidding: 60 seconds.
+                            </p>
+                          )}
+                          {account?.id === data.circle.creator_id &&
+                            ["forming", "active"].includes(data.circle.status) && (
+                              <div className="actions">
+                                {!data.circle.rules_json.demo_cycle_seconds ? (
+                                  <button
+                                    disabled={busy || !!cycle?.request_opened_at}
+                                    onClick={() =>
+                                      run(async () => {
+                                        await api(`/circles/${data.circle.id}/timer`, {
+                                          action: "enable_demo",
+                                        });
+                                        setNotice(
+                                          "30-second contribution and grace periods enabled. If this round is active, press Resume timer when ready.",
+                                        );
+                                      })
+                                    }
+                                  >
+                                    Use 30-second demo timing
+                                  </button>
+                                ) : (
+                                  cycle && (
+                                    <button
+                                      disabled={busy}
+                                      onClick={() =>
+                                        run(async () => {
+                                          await api(`/circles/${data.circle.id}/timer`, {
+                                            action: timerPaused ? "resume" : "pause",
+                                          });
+                                          setNotice(
+                                            timerPaused
+                                              ? "Timer resumed with the remaining time preserved."
+                                              : "Timer paused for all members.",
+                                          );
+                                        })
+                                      }
+                                    >
+                                      {timerPaused ? "Resume timer" : "Pause timer"}
+                                    </button>
+                                  )
+                                )}
+                              </div>
+                            )}
                         </div>
                       </section>
                       <section className="stats">
@@ -821,7 +876,7 @@ export default function Dashboard() {
                         <h2>Request this round’s payout</h2>
                         <p>
                           {cycle?.request_closes_at
-                            ? `Request window: ${Math.max(0, Math.ceil((new Date(cycle.request_closes_at).getTime() - now) / 1000))} seconds remaining.`
+                            ? `Request window: ${Math.max(0, Math.ceil((new Date(cycle.request_closes_at).getTime() - timerNow) / 1000))} seconds remaining.`
                             : "The request window opens when the entire pot is funded."}
                         </p>
                         <p>

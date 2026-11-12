@@ -85,6 +85,8 @@ export interface Snapshot {
     n_members: number;
     status: string;
     current_cycle: number;
+    creator_id: string | null;
+    timer_paused_at: string | null;
     mode: string;
     visibility: "public" | "private";
     invite_token?: string;

@@ -5,7 +5,7 @@ export async function bid(c: DB, memberId: string, discount: number) {
   money(discount);
   const m = (
     await c.query(
-      "SELECT m.*,c.mode,c.current_cycle,c.contribution,c.n_members,c.rules_json,c.clock_at,c.status AS circle_status FROM members m JOIN circles c ON c.id=m.circle_id WHERE m.id=$1",
+      "SELECT m.*,c.mode,c.current_cycle,c.contribution,c.n_members,c.rules_json,c.clock_at,c.timer_paused_at,c.status AS circle_status FROM members m JOIN circles c ON c.id=m.circle_id WHERE m.id=$1",
       [memberId],
     )
   ).rows[0];
@@ -13,6 +13,7 @@ export async function bid(c: DB, memberId: string, discount: number) {
     (m?.mode === "auction" || m?.rules_json?.request_window_seconds) &&
       m.circle_status === "active" &&
       m.status === "active" &&
+      !m.timer_paused_at &&
       !m.has_won,
     "Not eligible to bid",
   );

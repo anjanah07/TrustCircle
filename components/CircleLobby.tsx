@@ -202,6 +202,11 @@ export default function CircleLobby({
       </section>
       <section className="card">
         <h2>Create a circle</h2>
+        <p>
+          Hackathon demo timing: 30 seconds to contribute, then 30 seconds of grace. The
+          creator can pause and resume the timer. PayPal sandbox approvals are still
+          required.
+        </p>
         <form
           className="circle-create-form"
           onSubmit={(event) => {

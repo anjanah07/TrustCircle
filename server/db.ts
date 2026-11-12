@@ -159,6 +159,19 @@ export async function migrate() {
         throw error;
       }
     }
+    if (!(await c.query("SELECT * FROM migrations WHERE version=7")).rows.length) {
+      const sql = await readFile(`${process.cwd()}/server/migration-007.sql`, "utf8");
+      await c.query("BEGIN");
+      try {
+        if (embedded) await embedded.exec(sql);
+        else await c.query(sql);
+        await c.query("INSERT INTO migrations VALUES(7)");
+        await c.query("COMMIT");
+      } catch (error) {
+        await c.query("ROLLBACK");
+        throw error;
+      }
+    }
   } finally {
     if (!embedded) c.release();
   }

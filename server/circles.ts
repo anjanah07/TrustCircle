@@ -51,7 +51,8 @@ export async function createCircle(c: DB, input: any) {
         demo ? "INR" : "USD",
         Math.round(amount / 10),
         JSON.stringify({
-          ...(process.env.DEMO_CYCLE_SECONDS === "115"
+          ...(input.demo_cycle_seconds === 60 ? { demo_cycle_seconds: 60 } : {}),
+          ...(input.demo_cycle_seconds !== 60 && process.env.DEMO_CYCLE_SECONDS === "115"
             ? { demo_cycle_seconds: 115 }
             : {}),
           ...(input.request_window_seconds

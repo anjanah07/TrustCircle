@@ -32,6 +32,7 @@ test("migration preserves simulation tables and creates separate empty PayPal ta
       { version: 4 },
       { version: 5 },
       { version: 6 },
+      { version: 7 },
     ]);
     await migrate();
     assert.equal((await embedded.query("SELECT * FROM public.circles")).rows.length, 1);

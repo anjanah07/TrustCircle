@@ -23,7 +23,7 @@ export async function message(
 }
 export async function tick(c: DB, id: string) {
   const circle = (await c.query("SELECT * FROM circles WHERE id=$1", [id])).rows[0];
-  if (circle?.status !== "active") return;
+  if (circle?.status !== "active" || circle.timer_paused_at) return;
   const now = nowFor(circle);
   const cycle = (
     await c.query(
@@ -192,7 +192,11 @@ export async function tick(c: DB, id: string) {
 // Opens only after verified collections (or collateral coverage) fund the entire pot.
 export async function openRequestWindow(c: DB, id: string): Promise<boolean> {
   const circle = (await c.query("SELECT * FROM circles WHERE id=$1", [id])).rows[0];
-  if (circle?.status !== "active" || !circle.rules_json?.request_window_seconds)
+  if (
+    circle?.status !== "active" ||
+    circle.timer_paused_at ||
+    !circle.rules_json?.request_window_seconds
+  )
     return false;
   const cycle = (
     await c.query(
@@ -237,6 +241,7 @@ export async function closeCycle(c: DB, id: string) {
   await tick(c, id);
   const circle = (await c.query("SELECT * FROM circles WHERE id=$1", [id])).rows[0];
   requireThat(circle?.status === "active", "Circle is not active");
+  requireThat(!circle.timer_paused_at, "Circle timer is paused");
   const cycle = (
     await c.query("SELECT * FROM cycles WHERE circle_id=$1 AND n=$2", [
       id,
@@ -381,7 +386,12 @@ export async function closeCycle(c: DB, id: string) {
 }
 export async function scheduler() {
   const circles = await tx(
-    async (c) => (await c.query("SELECT id FROM circles WHERE status='active'")).rows,
+    async (c) =>
+      (
+        await c.query(
+          "SELECT id FROM circles WHERE status='active' AND timer_paused_at IS NULL",
+        )
+      ).rows,
   );
   for (const circle of circles) {
     await tx((c) => tick(c, circle.id));

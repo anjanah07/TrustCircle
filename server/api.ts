@@ -1,3 +1,4 @@
+import { controlTimer } from "./timer";
 import { deploymentSetup } from "./paypalConfig";
 import { proposeDeposit, confirmDeposit } from "./deposit";
 import { z } from "zod";
@@ -134,6 +135,7 @@ export async function postCircles(context: ApiContext): Promise<Response> {
       n_members: z.number().int().min(2).max(10),
       mode: z.enum(["rotation", "auction"]),
       request_window_seconds: z.number().int().min(15).max(3600).default(60),
+      demo_cycle_seconds: z.literal(60).default(60),
     })
     .parse(context.body);
   const response = Response.json(
@@ -379,4 +381,14 @@ export async function postOrderPrepare(context: ApiContext): Promise<Response> {
   requireThat(order, "Order not found");
   await ownMember(context.user.id, order.member_id);
   return Response.json(await prepareOrder(order.id));
+}
+
+export async function postCircleTimer(context: ApiContext): Promise<Response> {
+  const { action } = z
+    .object({ action: z.enum(["enable_demo", "pause", "resume"]) })
+    .strict()
+    .parse(context.body);
+  return Response.json(
+    await tx((c) => controlTimer(c, context.params.id, context.user.id, action)),
+  );
 }
