@@ -23,3 +23,11 @@ Checkout retries reuse the same saved order and idempotency key. Creation errors
 Migration 006 adds circle options, invitation secrets, default counters, bar timestamps and checkout-attempt timestamps. Deploying the app runs it automatically. Existing member default counts are backfilled from already processed defaults. Real PayPal/AI credentials and payment data are not used in the automated tests; the model tool-selection test uses a controlled response.
 
 Implementation references: [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling), [PayPal Orders API](https://developer.paypal.com/api/orders/v2).
+
+## Hackathon timer controls
+
+New circles created through the API use 30 seconds to contribute followed by 30 seconds of grace; the payout-request window remains 60 seconds. These are accelerated sandbox demonstration timings, not a monthly production schedule.
+
+For an existing circle, its creator can select **Use 30-second demo timing** in Overview before bidding opens and before defaults are processed. This changes the current collection deadlines and future rounds. An active round starts paused after conversion; select **Resume timer** when ready.
+
+Only the authenticated creator can pause/resume demo timers. The pause is persisted, survives restarts, and blocks automatic defaults, bidding, request-window opening, and settlement. Resume shifts deadlines by the paused duration. Already approved payments can still complete, and already queued payouts are not cancelled. A circle paused for default/reconciliation cannot be resumed with this timer control.

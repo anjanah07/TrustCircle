@@ -11,3 +11,10 @@ dist/
 
 .next/
 *.tsbuildinfo
+
+# Local recordings, exports and credentials
+output/
+*.pem
+*.key
+*.p12
+*.pfx

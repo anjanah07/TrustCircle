@@ -4,7 +4,7 @@ Use a Node Web Service and Render PostgreSQL. The repository's `render.yaml` cre
 
 ## 1. Push the app
 
-Make `trustcircle` itself the repository root, so `package.json` and `render.yaml` are at the root. The existing `.gitignore` excludes `.env`, dependency folders, local demo data and generated builds. Do not upload `.env` or account passwords. The five supplied member emails are saved only in ignored local `.env` as `PAYPAL_SANDBOX_MEMBER_EMAILS`, for onboarding reference; they are not automatically registered.
+Make `trustcircle` itself the repository root, so `package.json` and `render.yaml` are at the root. The existing `.gitignore` excludes `.env`, dependency folders, local demo data and generated builds. Do not upload `.env` or account passwords. Member accounts must be registered separately; do not publish their passwords.
 
 If using a monorepo instead, set the web service's `rootDir` to the path containing `package.json`, and select the corresponding Blueprint path in Render.
 
@@ -57,7 +57,7 @@ From the Render Shell, run `npm run paypal:check`. Resolve authentication, webho
 
 The app validates configuration, migrates the new database and starts its worker. Register the five members with their own sandbox emails. Test one buyer-approved deposit first, confirm it in PayPal, then proceed to the full circle.
 
-No Render deployment has been created by the coding agent. Account selection, repository connection and resource creation remain to be done in Render.
+The project demo is deployed on Render. For your own copy, complete account selection, repository connection, and resource creation in your Render account.
 
 Sources: [Next.js on Render](https://render.com/docs/deploy-nextjs-app), [Render environment variables](https://render.com/docs/environment-variables), [free service limitations](https://render.com/docs/free).
 
